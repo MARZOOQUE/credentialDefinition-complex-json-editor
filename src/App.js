@@ -56,14 +56,16 @@ const App = () => {
       });
     };
 
-    const parseItems = (items) => {
+    const parseItems = (items, limitValue) => {
       if (Array.isArray(items)) {
+        console.log("arr", items)
         return {
           type: "array",
-          items: items.map((item) => parseItems(item)),
+          items: items.map((item) => parseItems(item, limitValue)),
+          limitDisclosure: limitValue, // Set limitDisclosure for array items
         };
       }
-
+    
       if (items.type === "object") {
         return {
           type: "object",
@@ -71,9 +73,13 @@ const App = () => {
           limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : limitValue,
         };
       }
-
-      return items;
+    
+      return {
+        ...items,
+        limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : limitValue,
+      };
     };
+    
 
     return Object.keys(schema.properties).map((key) => {
       const property = schema.properties[key];
@@ -217,9 +223,11 @@ const App = () => {
       const updateProperties = (properties) => {
         return properties.map((prop) => {
           if (prop.type === "object" && prop.properties) {
+            
             prop.properties = updateProperties(prop.properties);
           } else if (prop.type === "array" && prop.items && prop.items.properties) {
             prop.items.properties = updateProperties(prop.items.properties);
+
           }
           prop.limitDisclosure = isChecked;
           return prop;
@@ -228,8 +236,14 @@ const App = () => {
 
       if (section.type === "object" && section.properties) {
         section.properties = updateProperties(section.properties);
+
       } else if (section.type === "array" && section.items && section.items.properties) {
+        console.log("array", section )
+        console.log("array triggered" )
+
         section.items.properties = updateProperties(section.items.properties);
+        console.log("array", section.items.properties )
+
       }
       section.limitDisclosure = isChecked;
       return section;
