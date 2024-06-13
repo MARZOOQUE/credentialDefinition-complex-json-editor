@@ -137,7 +137,6 @@ const App = () => {
       type: "object",
       properties: {},
       required: [],
-      limitDisclosure: limitValue, // Add limitDisclosure at the root level
     };
 
     sections.forEach((section) => {
@@ -206,7 +205,7 @@ const App = () => {
     };
 
     const allPropertiesTrue = checkProperties(schema.properties);
-    setValue("limitValue", allPropertiesTrue && schema.limitDisclosure);
+    setValue("limitValue", allPropertiesTrue);
   };
 
   const handleLimitValueChange = (event) => {
