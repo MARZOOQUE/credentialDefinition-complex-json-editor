@@ -7,7 +7,7 @@ const App = () => {
     defaultValues: {
       credentialDefinition: [],
       jsonSchema: "",
-      limitValue: true,
+      credentialFormat: true,
     },
   });
 
@@ -27,7 +27,7 @@ const App = () => {
 
     try {
       const parsedSchema = JSON.parse(inputValue);
-      const newSections = parseSchema(parsedSchema, watch("limitValue"));
+      const newSections = parseSchema(parsedSchema, watch("credentialFormat"));
       setValue("credentialDefinition", newSections);
       updateLimitValue(parsedSchema);
     } catch (e) {
@@ -35,7 +35,7 @@ const App = () => {
     }
   };
 
-  const parseSchema = (schema, limitValue) => {
+  const parseSchema = (schema, credentialFormat) => {
     const parseProperties = (properties, requiredFields) => {
       return Object.keys(properties).map((key) => {
         const property = properties[key];
@@ -43,7 +43,7 @@ const App = () => {
           name: key,
           type: property.type,
           required: requiredFields.includes(key),
-          limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : limitValue,
+          limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : credentialFormat,
         };
 
         if (property.type === "object") {
@@ -56,30 +56,24 @@ const App = () => {
       });
     };
 
-    const parseItems = (items, limitValue) => {
+    const parseItems = (items) => {
       if (Array.isArray(items)) {
-        console.log("arr", items)
         return {
           type: "array",
-          items: items.map((item) => parseItems(item, limitValue)),
-          limitDisclosure: limitValue, // Set limitDisclosure for array items
+          items: items.map((item) => parseItems(item)),
         };
       }
-    
+
       if (items.type === "object") {
         return {
           type: "object",
           properties: parseProperties(items.properties || {}, items.required || []),
-          limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : limitValue,
+          limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : credentialFormat,
         };
       }
-    
-      return {
-        ...items,
-        limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : limitValue,
-      };
+
+      return items;
     };
-    
 
     return Object.keys(schema.properties).map((key) => {
       const property = schema.properties[key];
@@ -89,12 +83,12 @@ const App = () => {
         properties: property.type === "object" ? parseProperties(property.properties || {}, property.required || []) : {},
         items: property.type === "array" ? parseItems(property.items || {}) : {},
         required: schema.required ? schema.required.includes(key) : false,
-        limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : limitValue,
+        limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : credentialFormat,
       };
     });
   };
 
-  const generateJsonSchema = (sections, limitValue) => {
+  const generateJsonSchema = (sections) => {
     const generateProperties = (properties) => {
       if (!Array.isArray(properties)) {
         return {};
@@ -103,7 +97,7 @@ const App = () => {
       return properties.reduce((acc, property) => {
         acc[property.name] = { type: property.type };
 
-        // Add limitDisclosure attribute based on limitValue
+        // Add limitDisclosure attribute based on credentialFormat
         acc[property.name].limitDisclosure = property.limitDisclosure;
 
         if (property.type === "object") {
@@ -180,7 +174,7 @@ const App = () => {
   };
 
   useEffect(() => {
-    const newJsonSchema = generateJsonSchema(watchCredentialDefinition, watch("limitValue"));
+    const newJsonSchema = generateJsonSchema(watchCredentialDefinition, watch("credentialFormat"));
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
 
     if (newJsonSchemaString !== lastJsonSchema.current) {
@@ -190,72 +184,76 @@ const App = () => {
     }
   }, [watchCredentialDefinition, setValue, handleTypeChange]);
 
-  const updateLimitValue = (schema) => {
-    let allTrue = true;
-    const checkProperties = (properties) => {
-      for (let key in properties) {
-        if (properties[key].type === "object" && properties[key].properties) {
-          if (!checkProperties(properties[key].properties)) {
-            return false;
-          }
-        } else if (properties[key].type === "array" && properties[key].items && properties[key].items.properties) {
-          if (!checkProperties(properties[key].items.properties)) {
-            return false;
-          }
-        } else if (properties[key].limitDisclosure === false) {
-          return false;
+
+  const  updateLimitValue=(jsonData)=> {
+    let count = 0;
+    let hasFalseValue = false;
+
+    function traverse(obj) {
+        if (typeof obj === 'object' && obj !== null) {
+            Object.keys(obj).forEach(key => {
+                if (key === "limitDisclosure") {
+                    count++;
+                    if (typeof obj[key] === 'boolean' && !obj[key]) {
+                        hasFalseValue = true;
+                    }
+                }
+                traverse(obj[key]);
+            });
+        } else if (Array.isArray(obj)) {
+            obj.forEach(item => traverse(item));
         }
-        allTrue = allTrue && properties[key].limitDisclosure;
-      }
-      return true;
-    };
+    }
 
-    const allPropertiesTrue = checkProperties(schema.properties);
-    setValue("limitValue", allPropertiesTrue);
+    traverse(jsonData);
+
+    console.log("count", count)
+    console.log("hasFalseValue", hasFalseValue)
+
+    if(hasFalseValue) {
+      setValue("credentialFormat", false)
+    }else {
+      setValue("credentialFormat", true)
+
+    }
+}
+
+
+const handleCredentialFormatValueChange = (event) => {
+  const isChecked = event.target.checked;
+  setValue("credentialFormat", isChecked);
+
+  // Get the current JSON schema value
+  const currentJsonSchema = JSON.parse(watch("jsonSchema"));
+
+  // Update each limitDisclosure property based on the isChecked value
+  const updatedJsonSchema = updateLimitDisclosure(currentJsonSchema, isChecked);
+
+  // Set the updated JSON schema value
+  setValue("jsonSchema", JSON.stringify(updatedJsonSchema, null, 2));
+};
+
+// Function to update limitDisclosure property in the JSON schema
+const updateLimitDisclosure = (schema, newValue) => {
+  const traverseAndUpdate = (obj) => {
+    if (typeof obj === 'object' && obj !== null) {
+      Object.keys(obj).forEach(key => {
+        if (key === "limitDisclosure") {
+          obj[key] = newValue; // Update the limitDisclosure property
+        }
+        traverseAndUpdate(obj[key]);
+      });
+    } else if (Array.isArray(obj)) {
+      obj.forEach(item => traverseAndUpdate(item));
+    }
   };
 
-  const handleLimitValueChange = (event) => {
-    const isChecked = event.target.checked;
-    setValue("limitValue", isChecked);
+  // Deep copy the schema to prevent mutation of the original object
+  const updatedSchema = JSON.parse(JSON.stringify(schema));
+  traverseAndUpdate(updatedSchema);
+  return updatedSchema;
+};
 
-    // Update limitDisclosure values in credentialDefinition
-    const updatedCredentialDefinition = watch("credentialDefinition").map((section) => {
-      const updateProperties = (properties) => {
-        return properties.map((prop) => {
-          if (prop.type === "object" && prop.properties) {
-            
-            prop.properties = updateProperties(prop.properties);
-          } else if (prop.type === "array" && prop.items && prop.items.properties) {
-            prop.items.properties = updateProperties(prop.items.properties);
-
-          }
-          prop.limitDisclosure = isChecked;
-          return prop;
-        });
-      };
-
-      if (section.type === "object" && section.properties) {
-        section.properties = updateProperties(section.properties);
-
-      } else if (section.type === "array" && section.items && section.items.properties) {
-        console.log("array", section )
-        console.log("array triggered" )
-
-        section.items.properties = updateProperties(section.items.properties);
-        console.log("array", section.items.properties )
-
-      }
-      section.limitDisclosure = isChecked;
-      return section;
-    });
-
-    setValue("credentialDefinition", updatedCredentialDefinition);
-
-    // Generate new JSON schema with updated limitDisclosure values
-    const newJsonSchema = generateJsonSchema(updatedCredentialDefinition, isChecked);
-    const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
-    setValue("jsonSchema", newJsonSchemaString);
-  };
 
   return (
     <div>
@@ -274,9 +272,9 @@ const App = () => {
           <label>
             <input
               type="checkbox"
-              {...register("limitValue")}
-              onChange={handleLimitValueChange}
-              checked={watch("limitValue")}
+              {...register("credentialFormat")}
+              onChange={handleCredentialFormatValueChange}
+              checked={watch("credentialFormat")}
             />
             Limit Disclosure
           </label>
@@ -290,7 +288,7 @@ const App = () => {
               properties: [],
               items: {},
               required: true,
-              limitDisclosure: watch("limitValue"),
+              limitDisclosure: watch("credentialFormat"),
             })
           }
         >
