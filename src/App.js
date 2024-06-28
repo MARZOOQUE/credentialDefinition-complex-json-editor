@@ -38,7 +38,7 @@ const App = () => {
 
       const newSections = parseSchema(parsedSchema, watch("credentialFormat"));
       setValue("credentialDefinition", newSections);
-      updateLimitDisclosure(parsedSchema);
+      updateCredentialFormatValue(parsedSchema);
     } catch (e) {
       console.error("Invalid JSON schema", e);
       setEditorError("Invalid JSON: " + e.message);
@@ -271,7 +271,7 @@ const App = () => {
    const handleCredentialFormatValueChange = (
     event
   ) => {
-    const isChecked = event;
+    const isChecked =  event.target.checked;
     setValue("credentialFormat", isChecked);
     // Get the current JSON schema value
     const currentJsonSchema = JSON.parse(watch("jsonSchema"));
@@ -320,6 +320,8 @@ const App = () => {
   setValue("credentialFormat", hasTrueValue || watch("credentialFormat"));
 };
 
+
+console.log("credentialFormat)", watch("credentialFormat"))
 
   return (
     <div className="app-container">
