@@ -268,13 +268,17 @@ const App = () => {
     return updatedSchema;
   };
 
-   const handleCredentialFormatValueChange = (
-    event
-  ) => {
-    const isChecked =  event.target.checked;
+  const handleCredentialFormatValueChange = (event) => {
+    const isChecked = event.target.checked;
     setValue("credentialFormat", isChecked);
+  
     // Get the current JSON schema value
     const currentJsonSchema = JSON.parse(watch("jsonSchema"));
+  
+    // If the schema is empty, don't update it
+    if (Object.keys(currentJsonSchema.properties).length === 0) {
+      return;
+    }
   
     // Update each limitDisclosure property based on the isChecked value
     const updatedJsonSchema = updateLimitDisclosure(currentJsonSchema, isChecked);
@@ -282,7 +286,7 @@ const App = () => {
     // Set the updated JSON schema value
     setValue("jsonSchema", JSON.stringify(updatedJsonSchema, null, 2));
   
-    updateCredentialFormatValue(updatedJsonSchema, watch, setValue);
+    updateCredentialFormatValue(updatedJsonSchema);
   
     try {
       const newSections = parseSchema(
@@ -297,29 +301,36 @@ const App = () => {
 
 
 
- const updateCredentialFormatValue = (
-  jsonData
-) => {
-  let hasTrueValue = false;
 
-  function traverse(obj) {
-    if (typeof obj === "object" && obj !== null) {
-      Object.keys(obj).forEach((key) => {
-        if (key === "limitDisclosure" && obj[key] === true) {
-          hasTrueValue = true;
-        }
-        traverse(obj[key]);
-      });
-    } else if (Array.isArray(obj)) {
-      obj.forEach((item) => traverse(item));
+  const updateCredentialFormatValue = (jsonData) => {
+    let hasTrueValue = false;
+    let hasLimitDisclosure = false;
+  
+    function traverse(obj) {
+      if (typeof obj === "object" && obj !== null) {
+        Object.keys(obj).forEach((key) => {
+          if (key === "limitDisclosure") {
+            hasLimitDisclosure = true;
+            if (obj[key] === true) {
+              hasTrueValue = true;
+            }
+          }
+          traverse(obj[key]);
+        });
+      } else if (Array.isArray(obj)) {
+        obj.forEach((item) => traverse(item));
+      }
     }
-  }
-
-  traverse(jsonData);
-
-  setValue("credentialFormat", hasTrueValue || watch("credentialFormat"));
-};
-
+  
+    traverse(jsonData);
+  
+    // If there are no limitDisclosure properties, keep the current value
+    if (!hasLimitDisclosure) {
+      return;
+    }
+  
+    setValue("credentialFormat", hasTrueValue);
+  };
 
 console.log("credentialFormat)", watch("credentialFormat"))
 
