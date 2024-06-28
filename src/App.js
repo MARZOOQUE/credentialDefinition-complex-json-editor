@@ -1,274 +1,176 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
+import AceEditor from "react-ace";
+
+import "ace-builds/src-noconflict/mode-json";
+import "ace-builds/src-noconflict/theme-tomorrow";
+import './App.css'
 
 const App = () => {
   const { register, control, handleSubmit, setValue, watch } = useForm({
     defaultValues: {
       credentialDefinition: [],
-      jsonSchema: "",
+      jsonSchema: "{}",
       credentialFormat: true,
     },
   });
+
+  const [editorValue, setEditorValue] = useState("{}");
+  const [editorError, setEditorError] = useState(null);
 
   const { fields, append, remove } = useFieldArray({
     control,
     name: "credentialDefinition",
   });
 
-  const handleJsonSchemaChange = (event) => {
-    const inputValue = event.target.value;
-    setValue("jsonSchema", inputValue);
-
-    if (inputValue.trim() === "") {
-      setValue("credentialDefinition", []);
-      return;
-    }
+  const handleJsonSchemaChange = (newValue) => {
+    setValue("jsonSchema", newValue);
+    setEditorValue(newValue);
 
     try {
-      const parsedSchema = JSON.parse(inputValue);
+      const parsedSchema = JSON.parse(newValue);
+      setEditorError(null); // Clear any previous errors
+
+      if (Object.keys(parsedSchema).length === 0) {
+        setValue("credentialDefinition", []);
+        return;
+      }
+
       const newSections = parseSchema(parsedSchema, watch("credentialFormat"));
       setValue("credentialDefinition", newSections);
       updateLimitValue(parsedSchema);
     } catch (e) {
       console.error("Invalid JSON schema", e);
+      setEditorError("Invalid JSON: " + e.message);
     }
   };
 
   const parseSchema = (schema, credentialFormat) => {
-    const parseProperties = (properties, requiredFields) => {
-      return Object.keys(properties).map((key) => {
-        const property = properties[key];
-        const parsedProperty = {
-          name: key,
-          type: property.type,
-          required: requiredFields.includes(key),
-          limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : credentialFormat,
-        };
-
-        if (property.type === "object") {
-          parsedProperty.properties = parseProperties(property.properties || {}, property.required || []);
-        } else if (property.type === "array") {
-          parsedProperty.items = parseItems(property.items || { type: "string" });
-        }
-
-        return parsedProperty;
-      });
-    };
-
-    const parseItems = (items) => {
-      if (Array.isArray(items)) {
-        return {
-          type: "array",
-          items: items.map((item) => parseItems(item)),
-        };
-      }
-
-      if (items.type === "object") {
-        return {
-          type: "object",
-          properties: parseProperties(items.properties || {}, items.required || []),
-          limitDisclosure: items.limitDisclosure !== undefined ? items.limitDisclosure : credentialFormat,
-        };
-      }
-
-      return items;
-    };
-
-    return Object.keys(schema.properties).map((key) => {
-      const property = schema.properties[key];
-      return {
+    const sections = [];
+    for (const [key, value] of Object.entries(schema.properties || {})) {
+      const section = {
         name: key,
-        type: property.type,
-        properties: property.type === "object" ? parseProperties(property.properties || {}, property.required || []) : {},
-        items: property.type === "array" ? parseItems(property.items || {}) : {},
-        required: schema.required ? schema.required.includes(key) : false,
-        limitDisclosure: property.limitDisclosure !== undefined ? property.limitDisclosure : credentialFormat,
+        type: value.type,
+        required: (schema.required || []).includes(key),
+        limitDisclosure: credentialFormat,
       };
-    });
+      if (value.type === 'object' && value.properties) {
+        section.properties = parseSchema(value, credentialFormat);
+      } else if (value.type === 'array' && value.items) {
+        section.items = { type: value.items.type };
+      }
+      sections.push(section);
+    }
+    return sections;
   };
 
-  const generateJsonSchema = (sections) => {
-    const generateProperties = (properties) => {
-      if (!Array.isArray(properties)) {
-        return {};
-      }
-
-      return properties.reduce((acc, property) => {
-        acc[property.name] = { type: property.type };
-
-        // Add limitDisclosure attribute based on credentialFormat
-        acc[property.name].limitDisclosure = property.limitDisclosure;
-
-        if (property.type === "object") {
-          acc[property.name].properties = generateProperties(property.properties || []);
-          acc[property.name].required = property.properties
-            ? property.properties.filter((prop) => prop.required).map((prop) => prop.name)
-            : [];
-        } else if (property.type === "array") {
-          acc[property.name].items = generateItems(property.items || { type: "string" });
-        }
-
-        return acc;
-      }, {});
-    };
-
-    const generateItems = (items) => {
-      if (Array.isArray(items)) {
-        return {
-          type: "array",
-          items: items.map((item) => generateItems(item)),
-        };
-      }
-
-      if (items.type === "object") {
-        return {
-          type: "object",
-          properties: generateProperties(items.properties || []),
-          required: items.properties ? items.properties.filter((prop) => prop.required).map((prop) => prop.name) : [],
-          limitDisclosure: items.limitDisclosure,
-        };
-      }
-
-      return items;
-    };
-
-    const schema = {
-      type: "object",
-      properties: {},
-      required: [],
-    };
-
+  const generateJsonSchema = (sections, credentialFormat) => {
+    const properties = {};
+    const required = [];
     sections.forEach((section) => {
-      schema.properties[section.name] = {
-        type: section.type,
-        limitDisclosure: section.limitDisclosure,
-      };
-
-      if (section.type === "object") {
-        schema.properties[section.name].properties = generateProperties(section.properties || []);
-
-        if (section.properties && Array.isArray(section.properties)) {
-          schema.properties[section.name].required = section.properties
-            .filter((prop) => prop.required)
-            .map((prop) => prop.name);
-        }
-      } else if (section.type === "array") {
-        schema.properties[section.name].items = generateItems(section.items || { type: "string" });
+      properties[section.name] = { type: section.type };
+      if (section.required) required.push(section.name);
+      if (section.type === 'object' && section.properties) {
+        properties[section.name].properties = generateJsonSchema(section.properties, credentialFormat).properties;
+      } else if (section.type === 'array' && section.items) {
+        properties[section.name].items = { type: section.items.type };
       }
-
-      if (section.required) {
-        schema.required.push(section.name);
+      if (credentialFormat) {
+        properties[section.name].limitDisclosure = section.limitDisclosure ? "required" : "optional";
       }
     });
-
-    return schema;
+    return { type: "object", properties, required };
   };
 
   const watchCredentialDefinition = watch("credentialDefinition");
-
-  const lastJsonSchema = useRef(null);
 
   const handleTypeChange = (index, value) => {
     setValue(`credentialDefinition.${index}.type`, value);
   };
 
   useEffect(() => {
-    const newJsonSchema = generateJsonSchema(watchCredentialDefinition, watch("credentialFormat"));
+    const newJsonSchema = generateJsonSchema(
+      watchCredentialDefinition,
+      watch("credentialFormat")
+    );
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
 
-    if (newJsonSchemaString !== lastJsonSchema.current) {
-      lastJsonSchema.current = newJsonSchemaString;
-      setValue("jsonSchema", newJsonSchemaString);
-      updateLimitValue(newJsonSchema);
-    }
-  }, [watchCredentialDefinition, setValue, handleTypeChange]);
+    setValue("jsonSchema", newJsonSchemaString);
+    setEditorValue(newJsonSchemaString);
+    updateLimitValue(newJsonSchema);
+  }, [watchCredentialDefinition, setValue, watch]);
 
-
-  const  updateLimitValue=(jsonData)=> {
-    let count = 0;
-    let hasFalseValue = false;
-
-    function traverse(obj) {
-        if (typeof obj === 'object' && obj !== null) {
-            Object.keys(obj).forEach(key => {
-                if (key === "limitDisclosure") {
-                    count++;
-                    if (typeof obj[key] === 'boolean' && !obj[key]) {
-                        hasFalseValue = true;
-                    }
-                }
-                traverse(obj[key]);
-            });
-        } else if (Array.isArray(obj)) {
-            obj.forEach(item => traverse(item));
+  const updateLimitValue = (jsonData) => {
+    const updateProperty = (prop) => {
+      if (prop && typeof prop === 'object') {
+        if (prop.type === 'object' && prop.properties) {
+          Object.values(prop.properties).forEach(updateProperty);
+        } else if (prop.type === 'array' && prop.items) {
+          updateProperty(prop.items);
         }
-    }
+        prop.limitDisclosure = watch("credentialFormat") ? "required" : "optional";
+      }
+    };
 
-    traverse(jsonData);
-
-    console.log("count", count)
-    console.log("hasFalseValue", hasFalseValue)
-
-    if(hasFalseValue) {
-      setValue("credentialFormat", false)
-    }else {
-      setValue("credentialFormat", true)
-
-    }
-}
-
-
-const handleCredentialFormatValueChange = (event) => {
-  const isChecked = event.target.checked;
-  setValue("credentialFormat", isChecked);
-
-  // Get the current JSON schema value
-  const currentJsonSchema = JSON.parse(watch("jsonSchema"));
-
-  // Update each limitDisclosure property based on the isChecked value
-  const updatedJsonSchema = updateLimitDisclosure(currentJsonSchema, isChecked);
-
-  // Set the updated JSON schema value
-  setValue("jsonSchema", JSON.stringify(updatedJsonSchema, null, 2));
-};
-
-// Function to update limitDisclosure property in the JSON schema
-const updateLimitDisclosure = (schema, newValue) => {
-  const traverseAndUpdate = (obj) => {
-    if (typeof obj === 'object' && obj !== null) {
-      Object.keys(obj).forEach(key => {
-        if (key === "limitDisclosure") {
-          obj[key] = newValue; // Update the limitDisclosure property
-        }
-        traverseAndUpdate(obj[key]);
-      });
-    } else if (Array.isArray(obj)) {
-      obj.forEach(item => traverseAndUpdate(item));
+    if (jsonData && jsonData.properties) {
+      Object.values(jsonData.properties).forEach(updateProperty);
     }
   };
 
-  // Deep copy the schema to prevent mutation of the original object
-  const updatedSchema = JSON.parse(JSON.stringify(schema));
-  traverseAndUpdate(updatedSchema);
-  return updatedSchema;
-};
+  const handleCredentialFormatValueChange = (event) => {
+    const isChecked = event.target.checked;
+    setValue("credentialFormat", isChecked);
 
+    const currentJsonSchema = JSON.parse(watch("jsonSchema"));
+
+    const updatedJsonSchema = updateLimitDisclosure(
+      currentJsonSchema,
+      isChecked
+    );
+
+    const updatedJsonSchemaString = JSON.stringify(updatedJsonSchema, null, 2);
+    setValue("jsonSchema", updatedJsonSchemaString);
+    setEditorValue(updatedJsonSchemaString);
+  };
+
+  const updateLimitDisclosure = (schema, newValue) => {
+    if (schema && typeof schema === 'object') {
+      if (schema.type === 'object' && schema.properties) {
+        Object.values(schema.properties).forEach(prop => updateLimitDisclosure(prop, newValue));
+      } else if (schema.type === 'array' && schema.items) {
+        updateLimitDisclosure(schema.items, newValue);
+      }
+      schema.limitDisclosure = newValue ? "required" : "optional";
+    }
+    return schema;
+  };
 
   return (
-    <div>
+    <div className="app-container">
       <form onSubmit={handleSubmit(() => {})}>
-        <div>
-          <label>Paste JSON Schema:</label>
-          <textarea
-            onChange={handleJsonSchemaChange}
-            value={watch("jsonSchema")}
-            placeholder="Paste JSON schema here"
-            rows="20"
-            cols="80"
-          />
+        <div className="editor-container">
+          <label>JSON Schema Editor:</label>
+          <div className="editor-wrapper">
+            <AceEditor
+              mode="json"
+              theme="tomorrow"
+              onChange={handleJsonSchemaChange}
+              name="json-editor"
+              editorProps={{ $blockScrolling: true }}
+              value={editorValue}
+              setOptions={{
+                showLineNumbers: true,
+                tabSize: 2,
+              }}
+              width="100%"
+              height="400px"
+              fontSize={14}
+              style={{ border: '1px solid #ccc' }}
+            />
+          </div>
+          {editorError && <div className="error-message">{editorError}</div>}
         </div>
-        <div>
+        <div className="checkbox-container">
           <label>
             <input
               type="checkbox"
@@ -281,6 +183,7 @@ const updateLimitDisclosure = (schema, newValue) => {
         </div>
         <button
           type="button"
+          className="add-section-button"
           onClick={() =>
             append({
               name: "",
@@ -294,16 +197,18 @@ const updateLimitDisclosure = (schema, newValue) => {
         >
           Add Section
         </button>
-        <ul>
+        <ul className="fields-list">
           {fields.map((field, index) => (
-            <li key={field.id}>
+            <li key={field.id} className="field-item">
               <input
                 {...register(`credentialDefinition.${index}.name`)}
                 placeholder="Input Name"
+                className="input-field"
               />
               <select
                 {...register(`credentialDefinition.${index}.type`)}
                 onChange={(e) => handleTypeChange(index, e.target.value)}
+                className="select-field"
               >
                 <option value="string">string</option>
                 <option value="number">number</option>
@@ -311,7 +216,7 @@ const updateLimitDisclosure = (schema, newValue) => {
                 <option value="object">object</option>
                 <option value="array">array</option>
               </select>
-              <button type="button" onClick={() => remove(index)}>
+              <button type="button" onClick={() => remove(index)} className="remove-button">
                 Remove
               </button>
             </li>

@@ -36,3 +36,79 @@
     transform: rotate(360deg);
   }
 }
+
+.app-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: Arial, sans-serif;
+}
+
+.editor-container {
+  margin-bottom: 20px;
+}
+
+.editor-wrapper {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.error-message {
+  color: #d32f2f;
+  background-color: #ffebee;
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 4px;
+  font-family: monospace;
+  border: 1px solid #ef9a9a;
+}
+
+.checkbox-container {
+  margin-bottom: 15px;
+}
+
+.add-section-button {
+  background-color: #4CAF50;
+  border: none;
+  color: white;
+  padding: 10px 20px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.fields-list {
+  list-style-type: none;
+  padding: 0;
+}
+
+.field-item {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.input-field, .select-field {
+  margin-right: 10px;
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.remove-button {
+  background-color: #f44336;
+  border: none;
+  color: white;
+  padding: 5px 10px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 14px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
