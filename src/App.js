@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
-import AceEditor from "react-ace";
 
-import "ace-builds/src-noconflict/mode-json";
-import "ace-builds/src-noconflict/theme-tomorrow";
+import MonacoEditor from "react-monaco-editor";
 import "./App.css";
+
+// import Editor, { DiffEditor, useMonaco, loader } from '@monaco-editor/react';
 
 const App = () => {
   const { register, control, handleSubmit, setValue, watch } = useForm({
@@ -231,7 +231,6 @@ const App = () => {
 
   const lastJsonSchema = React.useRef(null);
 
-
   useEffect(() => {
     const newJsonSchema = generateJsonSchema(
       watchCredentialDefinition,
@@ -261,7 +260,7 @@ const App = () => {
         obj.forEach((item) => traverseAndUpdate(item));
       }
     };
-  
+
     // Deep copy the schema to prevent mutation of the original object
     const updatedSchema = JSON.parse(JSON.stringify(schema));
     traverseAndUpdate(updatedSchema);
@@ -271,23 +270,26 @@ const App = () => {
   const handleCredentialFormatValueChange = (event) => {
     const isChecked = event.target.checked;
     setValue("credentialFormat", isChecked);
-  
+
     // Get the current JSON schema value
     const currentJsonSchema = JSON.parse(watch("jsonSchema"));
-  
+
     // If the schema is empty, don't update it
     if (Object.keys(currentJsonSchema.properties).length === 0) {
       return;
     }
-  
+
     // Update each limitDisclosure property based on the isChecked value
-    const updatedJsonSchema = updateLimitDisclosure(currentJsonSchema, isChecked);
-  
+    const updatedJsonSchema = updateLimitDisclosure(
+      currentJsonSchema,
+      isChecked
+    );
+
     // Set the updated JSON schema value
     setValue("jsonSchema", JSON.stringify(updatedJsonSchema, null, 2));
-  
+
     updateCredentialFormatValue(updatedJsonSchema);
-  
+
     try {
       const newSections = parseSchema(
         updatedJsonSchema,
@@ -299,13 +301,10 @@ const App = () => {
     }
   };
 
-
-
-
   const updateCredentialFormatValue = (jsonData) => {
     let hasTrueValue = false;
     let hasLimitDisclosure = false;
-  
+
     function traverse(obj) {
       if (typeof obj === "object" && obj !== null) {
         Object.keys(obj).forEach((key) => {
@@ -321,43 +320,38 @@ const App = () => {
         obj.forEach((item) => traverse(item));
       }
     }
-  
+
     traverse(jsonData);
-  
+
     // If there are no limitDisclosure properties, keep the current value
     if (!hasLimitDisclosure) {
       return;
     }
-  
+
     setValue("credentialFormat", hasTrueValue);
   };
 
-console.log("credentialFormat)", watch("credentialFormat"))
 
   return (
     <div className="app-container">
       <form onSubmit={handleSubmit(() => {})}>
         <div className="editor-container">
           <label>JSON Schema Editor:</label>
+          {editorError && <div className="error-message">{editorError}</div>}
           <div className="editor-wrapper">
-            <AceEditor
-              mode="json"
-              theme="tomorrow"
-              onChange={handleJsonSchemaChange}
-              name="json-editor"
-              editorProps={{ $blockScrolling: true }}
+            <MonacoEditor
+              width="800"
+              height="600"
+              language="javascript"
+              theme="light"
               value={editorValue}
-              setOptions={{
-                showLineNumbers: true,
-                tabSize: 2,
+              onChange={handleJsonSchemaChange}
+              options={{
+                selectOnLineNumbers: true,
+                minimap: { enabled: false },
               }}
-              width="100%"
-              height="400px"
-              fontSize={14}
-              style={{ border: "1px solid #ccc" }}
             />
           </div>
-          {editorError && <div className="error-message">{editorError}</div>}
         </div>
         <div className="checkbox-container">
           <label>
