@@ -39,12 +39,22 @@ const App = () => {
         title: parsedSchema.title,
         description: parsedSchema.description,
         allOf: parsedSchema.allOf,
+        ...(parsedSchema.additionalProperties !== undefined && {
+          additionalProperties: parsedSchema.additionalProperties,
+        }),
+
         // Store any other top-level properties that aren't being handled
         ...Object.fromEntries(
           Object.entries(parsedSchema).filter(
-            ([key]) => !['type', 'properties', 'required', 'additionalProperties'].includes(key)
+            ([key]) =>
+              ![
+                "type",
+                "properties",
+                "required",
+                "additionalProperties",
+              ].includes(key)
           )
-        )
+        ),
       };
 
       const newSections = parseSchema(parsedSchema, watch("credentialFormat"));
@@ -56,286 +66,309 @@ const App = () => {
     }
   };
 
- const parseSchema = (schema, credentialFormatValue) => {
-  const shouldAddLimitDisclosure = (property) => {
-    if (credentialFormatValue === "jwt") return undefined;
-    return property.limitDisclosure !== undefined
-      ? property.limitDisclosure
-      : undefined;
-  };
+  const parseSchema = (schema, credentialFormatValue) => {
+    const shouldAddLimitDisclosure = (property) => {
+      if (credentialFormatValue === "jwt") return undefined;
+      return property.limitDisclosure !== undefined
+        ? property.limitDisclosure
+        : undefined;
+    };
 
-  const parseProperties = (properties, requiredFields) => {
-    return Object.keys(properties).map((key) => {
-      const property = properties[key];
+    const parseProperties = (properties, requiredFields) => {
+      return Object.keys(properties).map((key) => {
+        const property = properties[key];
+        const propertyWithoutLimitDisclosure = { ...property };
+        delete propertyWithoutLimitDisclosure.limitDisclosure;
+
+        const parsedProperty = {
+          ...propertyWithoutLimitDisclosure,
+          name: key,
+          required:
+            Array.isArray(requiredFields) && requiredFields.includes(key),
+        };
+
+        // Add type only if it's present in the original property
+        if (property.type !== undefined) {
+          parsedProperty.type = property.type;
+        }
+
+        // Add limitDisclosure only if explicitly defined and format is not jwt
+        const limitDisclosureValue = shouldAddLimitDisclosure(property);
+        if (limitDisclosureValue !== undefined) {
+          parsedProperty.limitDisclosure = limitDisclosureValue;
+        }
+
+        // Handle nested properties and arrays
+        if (property.type === "object") {
+          // Don't delete properties from the original
+          delete parsedProperty.properties;
+          parsedProperty.properties = parseProperties(
+            property.properties || {},
+            property.required || []
+          );
+
+          // Preserve additionalProperties
+          if (
+            property.additionalProperties !== undefined &&
+            credentialFormatValue !== "mso_mdoc"
+          ) {
+            parsedProperty.additionalProperties = property.additionalProperties;
+          }
+        } else if (property.type === "array") {
+          // Don't delete items from the original
+          delete parsedProperty.items;
+          parsedProperty.items = parseItems(
+            property.items || { type: "string" }
+          );
+        }
+
+        return parsedProperty;
+      });
+    };
+
+    const parseItems = (items) => {
+      if (Array.isArray(items)) {
+        return {
+          type: "array",
+          items: items.map((item) => parseItems(item)),
+        };
+      }
+
+      if (items.type === "object") {
+        const itemsWithoutLimitDisclosure = { ...items };
+        delete itemsWithoutLimitDisclosure.limitDisclosure;
+
+        const parsedItem = {
+          ...itemsWithoutLimitDisclosure,
+        };
+
+        // Add type only if it exists in the original items
+        if (items.type !== undefined) {
+          parsedItem.type = items.type;
+        }
+
+        delete parsedItem.properties;
+        parsedItem.properties = parseProperties(
+          items.properties || {},
+          items.required || []
+        );
+
+        const limitDisclosureValue = shouldAddLimitDisclosure(items);
+        if (limitDisclosureValue !== undefined) {
+          parsedItem.limitDisclosure = limitDisclosureValue;
+        }
+
+        if (
+          items.additionalProperties !== undefined &&
+          credentialFormatValue !== "mso_mdoc"
+        ) {
+          parsedItem.additionalProperties = items.additionalProperties;
+        }
+
+        return parsedItem;
+      }
+
+      return items;
+    };
+
+    const result = Object.keys(schema.properties || {}).map((key) => {
+      const property = schema.properties[key];
       const propertyWithoutLimitDisclosure = { ...property };
       delete propertyWithoutLimitDisclosure.limitDisclosure;
 
       const parsedProperty = {
         ...propertyWithoutLimitDisclosure,
         name: key,
-        required: Array.isArray(requiredFields) && requiredFields.includes(key),
+        required: schema.required ? schema.required.includes(key) : false,
       };
-      
-      // Add type only if it's present in the original property
+
+      // Only add type if it exists in the original property
       if (property.type !== undefined) {
         parsedProperty.type = property.type;
       }
 
-      // Add limitDisclosure only if explicitly defined and format is not jwt
-      const limitDisclosureValue = shouldAddLimitDisclosure(property);
-      if (limitDisclosureValue !== undefined) {
-        parsedProperty.limitDisclosure = limitDisclosureValue;
-      }
-
-      // Handle nested properties and arrays
       if (property.type === "object") {
-        // Don't delete properties from the original
         delete parsedProperty.properties;
         parsedProperty.properties = parseProperties(
           property.properties || {},
           property.required || []
         );
-        
-        // Preserve additionalProperties
-        if (property.additionalProperties !== undefined && credentialFormatValue !== "mso_mdoc") {
+
+        if (
+          property.additionalProperties !== undefined &&
+          credentialFormatValue !== "mso_mdoc"
+        ) {
           parsedProperty.additionalProperties = property.additionalProperties;
         }
       } else if (property.type === "array") {
-        // Don't delete items from the original
         delete parsedProperty.items;
-        parsedProperty.items = parseItems(
-          property.items || { type: "string" }
-        );
-      }
-
-      return parsedProperty;
-    });
-  };
-
-  const parseItems = (items) => {
-    if (Array.isArray(items)) {
-      return {
-        type: "array",
-        items: items.map((item) => parseItems(item)),
-      };
-    }
-
-    if (items.type === "object") {
-      const itemsWithoutLimitDisclosure = { ...items };
-      delete itemsWithoutLimitDisclosure.limitDisclosure;
-
-      const parsedItem = {
-        ...itemsWithoutLimitDisclosure,
-      };
-      
-      // Add type only if it exists in the original items
-      if (items.type !== undefined) {
-        parsedItem.type = items.type;
-      }
-      
-      delete parsedItem.properties;
-      parsedItem.properties = parseProperties(
-        items.properties || {},
-        items.required || []
-      );
-
-      const limitDisclosureValue = shouldAddLimitDisclosure(items);
-      if (limitDisclosureValue !== undefined) {
-        parsedItem.limitDisclosure = limitDisclosureValue;
-      }
-
-      if (items.additionalProperties !== undefined && credentialFormatValue !== "mso_mdoc") {
-        parsedItem.additionalProperties = items.additionalProperties;
-      }
-
-      return parsedItem;
-    }
-
-    return items;
-  };
-
-  const result = Object.keys(schema.properties || {}).map((key) => {
-    const property = schema.properties[key];
-    const propertyWithoutLimitDisclosure = { ...property };
-    delete propertyWithoutLimitDisclosure.limitDisclosure;
-
-    const parsedProperty = {
-      ...propertyWithoutLimitDisclosure,
-      name: key,
-      required: schema.required ? schema.required.includes(key) : false,
-    };
-    
-    // Only add type if it exists in the original property
-    if (property.type !== undefined) {
-      parsedProperty.type = property.type;
-    }
-
-    if (property.type === "object") {
-      delete parsedProperty.properties;
-      parsedProperty.properties = parseProperties(
-        property.properties || {},
-        property.required || []
-      );
-      
-      if (property.additionalProperties !== undefined && credentialFormatValue !== "mso_mdoc") {
-        parsedProperty.additionalProperties = property.additionalProperties;
-      }
-    } else if (property.type === "array") {
-      delete parsedProperty.items;
-      parsedProperty.items = parseItems(property.items || {});
-    }
-
-    const limitDisclosureValue = shouldAddLimitDisclosure(property);
-    if (limitDisclosureValue !== undefined) {
-      parsedProperty.limitDisclosure = limitDisclosureValue;
-    }
-
-    return parsedProperty;
-  });
-
-  if (schema.additionalProperties !== undefined && credentialFormatValue !== "mso_mdoc") {
-    result.additionalProperties = schema.additionalProperties;
-  }
-
-  return result;
-};
-
-const generateJsonSchema = (
-  sections,
-  credentialFormatValue,
-  additionalProperties
-) => {
-  const shouldAddLimitDisclosure = (property) => {
-    if (credentialFormatValue === "jwt") return undefined;
-    return property.limitDisclosure !== undefined
-      ? property.limitDisclosure
-      : undefined;
-  };
-
-  const generateItems = (items) => {
-    if (Array.isArray(items)) {
-      return {
-        type: "array",
-        items: items.map((item) => generateItems(item)),
-      };
-    }
-
-    if (items.type === "object") {
-      const generatedItem = {
-        ...items,
-        properties: generateProperties(items.properties || []),
-      };
-      
-      // Only add type if it exists in the original items
-      if (items.type !== undefined) {
-        generatedItem.type = items.type;
-      }
-
-      if (Array.isArray(items.properties) && items.properties.length > 0) {
-        const requiredProps = items.properties
-          .filter((prop) => prop && prop.required)
-          .map((prop) => prop.name);
-
-        if (requiredProps.length > 0) {
-          generatedItem.required = requiredProps;
-        }
-      }
-
-      const limitDisclosureValue = shouldAddLimitDisclosure(items);
-      if (limitDisclosureValue !== undefined) {
-        generatedItem.limitDisclosure = limitDisclosureValue;
-      }
-
-      return generatedItem;
-    }
-
-    return items;
-  };
-
-  const generateProperties = (properties) => {
-    if (!Array.isArray(properties)) {
-      return {};
-    }
-
-    return properties.reduce((acc, property) => {
-      if (!property || !property.name) return acc;
-
-      acc[property.name] = {
-        ...Object.fromEntries(
-          Object.entries(property).filter(
-            ([key]) =>
-              ![
-                "name",
-                "type",
-                "properties",
-                "items",
-                "required",
-                "limitDisclosure",
-                "additionalProperties",
-              ].includes(key)
-          )
-        ),
-      };
-      
-      // Only add type if it exists in the original property
-      if (property.type !== undefined) {
-        acc[property.name].type = property.type;
+        parsedProperty.items = parseItems(property.items || {});
       }
 
       const limitDisclosureValue = shouldAddLimitDisclosure(property);
       if (limitDisclosureValue !== undefined) {
-        acc[property.name].limitDisclosure = limitDisclosureValue;
+        parsedProperty.limitDisclosure = limitDisclosureValue;
       }
 
-      if (property.type === "object") {
-        const propertyArray = Array.isArray(property.properties)
-          ? property.properties
-          : [];
+      return parsedProperty;
+    });
 
-        acc[property.name].properties = generateProperties(propertyArray);
+    if (
+      schema.additionalProperties !== undefined &&
+      credentialFormatValue !== "mso_mdoc"
+    ) {
+      result.additionalProperties = schema.additionalProperties;
+    }
 
-        if (propertyArray.length > 0) {
-          const requiredFields = propertyArray
+    return result;
+  };
+
+  const generateJsonSchema = (
+    sections,
+    credentialFormatValue,
+    additionalProperties
+  ) => {
+    const shouldAddLimitDisclosure = (property) => {
+      if (credentialFormatValue === "jwt") return undefined;
+      return property.limitDisclosure !== undefined
+        ? property.limitDisclosure
+        : undefined;
+    };
+
+    const generateItems = (items) => {
+      if (Array.isArray(items)) {
+        return {
+          type: "array",
+          items: items.map((item) => generateItems(item)),
+        };
+      }
+
+      if (items.type === "object") {
+        const generatedItem = {
+          ...items,
+          properties: generateProperties(items.properties || []),
+        };
+
+        // Only add type if it exists in the original items
+        if (items.type !== undefined) {
+          generatedItem.type = items.type;
+        }
+
+        if (Array.isArray(items.properties) && items.properties.length > 0) {
+          const requiredProps = items.properties
             .filter((prop) => prop && prop.required)
             .map((prop) => prop.name);
 
-          if (requiredFields.length > 0) {
-            acc[property.name].required = requiredFields;
+          if (requiredProps.length > 0) {
+            generatedItem.required = requiredProps;
           }
         }
-      } else if (property.type === "array") {
-        acc[property.name].items = generateItems(
-          property.items || { type: "string" }
-        );
+
+        const limitDisclosureValue = shouldAddLimitDisclosure(items);
+        if (limitDisclosureValue !== undefined) {
+          generatedItem.limitDisclosure = limitDisclosureValue;
+        }
+
+        return generatedItem;
       }
 
-      return acc;
-    }, {});
-  };
+      return items;
+    };
 
-  const schema = {
-    ...(window._originalSchema || {}),
-    type: "object",
-    properties: generateProperties(sections),
-  };
+    const generateProperties = (properties) => {
+      if (!Array.isArray(properties)) {
+        return {};
+      }
 
-  if (credentialFormatValue !== "mso_mdoc") {
-    schema.additionalProperties =
-      additionalProperties !== undefined ? additionalProperties : false;
-  }
+      return properties.reduce((acc, property) => {
+        if (!property || !property.name) return acc;
 
-  if (Array.isArray(sections) && sections.length > 0) {
-    const requiredFields = sections
-      .filter((section) => section && section.required)
-      .map((section) => section.name);
+        acc[property.name] = {
+          ...Object.fromEntries(
+            Object.entries(property).filter(
+              ([key]) =>
+                ![
+                  "name",
+                  "type",
+                  "properties",
+                  "items",
+                  "required",
+                  "limitDisclosure",
+                  "additionalProperties",
+                ].includes(key)
+            )
+          ),
+        };
 
-    if (requiredFields.length > 0) {
-      schema.required = requiredFields;
+        // Only add type if it exists in the original property
+        if (property.type !== undefined) {
+          acc[property.name].type = property.type;
+        }
+
+        const limitDisclosureValue = shouldAddLimitDisclosure(property);
+        if (limitDisclosureValue !== undefined) {
+          acc[property.name].limitDisclosure = limitDisclosureValue;
+        }
+
+        if (property.type === "object") {
+          const propertyArray = Array.isArray(property.properties)
+            ? property.properties
+            : [];
+
+          acc[property.name].properties = generateProperties(propertyArray);
+
+          if (propertyArray.length > 0) {
+            const requiredFields = propertyArray
+              .filter((prop) => prop && prop.required)
+              .map((prop) => prop.name);
+
+            if (requiredFields.length > 0) {
+              acc[property.name].required = requiredFields;
+            }
+          }
+        } else if (property.type === "array") {
+          acc[property.name].items = generateItems(
+            property.items || { type: "string" }
+          );
+        }
+
+        return acc;
+      }, {});
+    };
+
+    const schema = {
+      ...(window._originalSchema || {}),
+      type: "object",
+      properties: generateProperties(sections),
+    };
+
+    // Check if any section has additionalProperties defined
+    const hasAdditionalProperties = sections.some(
+      (section) => section?.additionalProperties !== undefined
+    );
+
+    // Only include additionalProperties if it was explicitly defined in sections
+
+    if (credentialFormatValue !== "mso_mdoc" && hasAdditionalProperties) {
+      // Use the first defined additionalProperties value
+      const additionalPropertiesValue = sections.find(
+        (section) => section?.additionalProperties !== undefined
+      )?.additionalProperties;
+      schema.additionalProperties = additionalPropertiesValue;
     }
-  }
 
-  return schema;
-};
+    if (Array.isArray(sections) && sections.length > 0) {
+      const requiredFields = sections
+        .filter((section) => section && section.required)
+        .map((section) => section.name);
+
+      if (requiredFields.length > 0) {
+        schema.required = requiredFields;
+      }
+    }
+
+    return schema;
+  };
 
   const watchCredentialDefinition = watch("credentialDefinition");
 
@@ -396,10 +429,7 @@ const generateJsonSchema = (
     setValue("jsonSchema", JSON.stringify(updatedJsonSchema, null, 2));
 
     try {
-      const newSections = parseSchema(
-        updatedJsonSchema,
-        isChecked
-      );
+      const newSections = parseSchema(updatedJsonSchema, isChecked);
       setValue("credentialDefinition", newSections);
     } catch (e) {
       console.error("Invalid JSON schema", e);
