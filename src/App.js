@@ -40,17 +40,20 @@ const App = () => {
         title: parsedSchema.title,
         description: parsedSchema.description,
         allOf: parsedSchema.allOf,
-        $defs: parsedSchema.$defs,
+        required: parsedSchema.required,
+        type: parsedSchema.type,
         ...(parsedSchema.additionalProperties !== undefined && {
           additionalProperties: parsedSchema.additionalProperties,
         }),
+
+        // Store any other top-level properties that aren't being handled
         ...Object.fromEntries(
           Object.entries(parsedSchema).filter(
             ([key]) =>
               ![
-                "type",
+                // "type",
                 "properties",
-                "required",
+                // "required",
                 "additionalProperties",
               ].includes(key)
           )
@@ -266,6 +269,11 @@ const App = () => {
   };
 
   const generateJsonSchema = (sections, credentialFormatValue) => {
+    // If no sections are defined and we have the original schema, return it unchanged
+    if ((!sections || sections.length === 0) && window._originalSchema) {
+      return window._originalSchema;
+    }
+
     const shouldAddLimitDisclosure = (property) => {
       if (credentialFormatValue === "jwt") return undefined;
       return property.limitDisclosure !== undefined
@@ -276,51 +284,69 @@ const App = () => {
     // Helper function to check if a property has a $ref to $defs or definitions
     const hasDefinitionReference = (property) => {
       const isDefRef = (ref) => {
-        return ref && (ref.startsWith("#/$defs/") || ref.startsWith("#/definitions/"));
+        return (
+          ref &&
+          (ref.startsWith("#/$defs/") || ref.startsWith("#/definitions/"))
+        );
       };
-    
+
       // Create a flag to track if we found a definition reference
       let hasRef = false;
-    
+
       // Check direct anyOf with $ref
       if (property.anyOf && Array.isArray(property.anyOf)) {
         hasRef = property.anyOf.some((item) => isDefRef(item.$ref));
       }
       // Check items.anyOf with $ref for arrays
-      if (property.items && property.items.anyOf && Array.isArray(property.items.anyOf)) {
+      if (
+        property.items &&
+        property.items.anyOf &&
+        Array.isArray(property.items.anyOf)
+      ) {
         hasRef = property.items.anyOf.some((item) => isDefRef(item.$ref));
       }
-    
+
       // Check direct oneOf with $ref
       if (property.oneOf && Array.isArray(property.oneOf)) {
         hasRef = property.oneOf.some((item) => isDefRef(item.$ref));
       }
       // Check items.oneOf with $ref for arrays
-      if (property.items && property.items.oneOf && Array.isArray(property.items.oneOf)) {
+      if (
+        property.items &&
+        property.items.oneOf &&
+        Array.isArray(property.items.oneOf)
+      ) {
         hasRef = property.items.oneOf.some((item) => isDefRef(item.$ref));
       }
-    
+
       // Check direct allOf with $ref
       if (property.allOf && Array.isArray(property.allOf)) {
         hasRef = property.allOf.some((item) => isDefRef(item.$ref));
       }
       // Check items.allOf with $ref for arrays
-      if (property.items && property.items.allOf && Array.isArray(property.items.allOf)) {
+      if (
+        property.items &&
+        property.items.allOf &&
+        Array.isArray(property.items.allOf)
+      ) {
         hasRef = property.items.allOf.some((item) => isDefRef(item.$ref));
       }
-    
+
       // Check direct $ref
       hasRef = hasRef || isDefRef(property.$ref);
-    
+
       // Special case: if the property has oneOf/anyOf/allOf at the items level
       // and is an array type, we should preserve the type
-      if (property.type === "array" && property.items && (property.items.oneOf || property.items.anyOf || property.items.allOf)) {
+      if (
+        property.type === "array" &&
+        property.items &&
+        (property.items.oneOf || property.items.anyOf || property.items.allOf)
+      ) {
         return false;
       }
-    
+
       return hasRef;
     };
-    
 
     const generateItems = (items) => {
       if (Array.isArray(items)) {
@@ -369,15 +395,15 @@ const App = () => {
       if (!Array.isArray(properties)) {
         return {};
       }
-    
+
       return properties.reduce((acc, property) => {
         if (!property || !property.name) return acc;
-    
+
         acc[property.name] = {};
-    
+
         // Check if this property has a reference to $defs or definitions
         const skipTypeField = hasDefinitionReference(property);
-    
+
         // Copy over non-UI fields
         for (const key in property) {
           if (
@@ -395,50 +421,53 @@ const App = () => {
             }
           }
         }
-    
+
         const limitDisclosureValue = shouldAddLimitDisclosure(property);
         if (limitDisclosureValue !== undefined) {
           acc[property.name].limitDisclosure = limitDisclosureValue;
         }
-    
+
         if (property.type === "object") {
           const propertyArray = Array.isArray(property.properties)
             ? property.properties
             : [];
-    
+
           const generatedProperties = generateProperties(propertyArray);
-    
+
           if (Object.keys(generatedProperties).length > 0) {
             acc[property.name].properties = generatedProperties;
           }
-    
+
           if (propertyArray.length > 0) {
             const requiredFields = propertyArray
               .filter((prop) => prop && prop.required)
               .map((prop) => prop.name);
-    
+
             if (requiredFields.length > 0) {
               acc[property.name].required = requiredFields;
             }
           }
-    
+
           if (
             property.additionalProperties !== undefined &&
             credentialFormatValue !== "mso_mdoc"
           ) {
-            acc[property.name].additionalProperties = property.additionalProperties;
+            acc[property.name].additionalProperties =
+              property.additionalProperties;
           }
         } else if (property.type === "array") {
           acc[property.name].type = "array"; // Explicitly set type for arrays
-          acc[property.name].items = generateItems(property.items || { type: "string" });
+          acc[property.name].items = generateItems(
+            property.items || { type: "string" }
+          );
         }
-    
+
         // Preserve oneOf, anyOf, allOf and $ref
         if (property.oneOf) acc[property.name].oneOf = property.oneOf;
         if (property.anyOf) acc[property.name].anyOf = property.anyOf;
         if (property.allOf) acc[property.name].allOf = property.allOf;
         if (property.$ref) acc[property.name].$ref = property.$ref;
-    
+
         return acc;
       }, {});
     };
