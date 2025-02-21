@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import MonacoEditor from "react-monaco-editor";
+import jsf from "json-schema-faker";
 import "./App.css";
 
 const App = () => {
@@ -39,11 +40,10 @@ const App = () => {
         title: parsedSchema.title,
         description: parsedSchema.description,
         allOf: parsedSchema.allOf,
+        $defs: parsedSchema.$defs,
         ...(parsedSchema.additionalProperties !== undefined && {
           additionalProperties: parsedSchema.additionalProperties,
         }),
-
-        // Store any other top-level properties that aren't being handled
         ...Object.fromEntries(
           Object.entries(parsedSchema).filter(
             ([key]) =>
@@ -66,6 +66,32 @@ const App = () => {
     }
   };
 
+  const detectSchemaType = (schemaObj) => {
+    // If type is already defined, use it
+    if (schemaObj.type) {
+      return schemaObj.type;
+    }
+
+    // Handle anyOf or other cases
+    if (schemaObj.anyOf || schemaObj.oneOf || schemaObj.allOf) {
+      return "object";
+    }
+
+    // Handle $ref case - don't traverse into $defs
+    if (schemaObj.$ref) {
+      return "object"; // Return object as default for $ref without looking into $defs
+    }
+
+    // Infer type from structure
+    if (schemaObj.properties) {
+      return "object";
+    }
+    if (schemaObj.items) {
+      return "array";
+    }
+
+    return "string"; // default fallback
+  };
   const parseSchema = (schema, credentialFormatValue) => {
     const shouldAddLimitDisclosure = (property) => {
       if (credentialFormatValue === "jwt") return undefined;
@@ -87,35 +113,37 @@ const App = () => {
             Array.isArray(requiredFields) && requiredFields.includes(key),
         };
 
-        // Add type only if it's present in the original property
-        if (property.type !== undefined) {
+        // Detect type if not explicitly defined
+        if (!property.type) {
+          try {
+            parsedProperty.type = detectSchemaType(property);
+          } catch (err) {
+            console.warn(`Could not detect type for property ${key}:`, err);
+            parsedProperty.type = "string";
+          }
+        } else {
           parsedProperty.type = property.type;
         }
 
-        // Add limitDisclosure only if explicitly defined and format is not jwt
         const limitDisclosureValue = shouldAddLimitDisclosure(property);
         if (limitDisclosureValue !== undefined) {
           parsedProperty.limitDisclosure = limitDisclosureValue;
         }
 
-        // Handle nested properties and arrays
-        if (property.type === "object") {
-          // Don't delete properties from the original
+        if (parsedProperty.type === "object") {
           delete parsedProperty.properties;
           parsedProperty.properties = parseProperties(
             property.properties || {},
             property.required || []
           );
 
-          // Preserve additionalProperties
           if (
             property.additionalProperties !== undefined &&
             credentialFormatValue !== "mso_mdoc"
           ) {
             parsedProperty.additionalProperties = property.additionalProperties;
           }
-        } else if (property.type === "array") {
-          // Don't delete items from the original
+        } else if (parsedProperty.type === "array") {
           delete parsedProperty.items;
           parsedProperty.items = parseItems(
             property.items || { type: "string" }
@@ -134,6 +162,15 @@ const App = () => {
         };
       }
 
+      if (!items.type) {
+        try {
+          items.type = detectSchemaType(items);
+        } catch (err) {
+          console.warn("Could not detect type for array items:", err);
+          items.type = "string";
+        }
+      }
+
       if (items.type === "object") {
         const itemsWithoutLimitDisclosure = { ...items };
         delete itemsWithoutLimitDisclosure.limitDisclosure;
@@ -142,7 +179,6 @@ const App = () => {
           ...itemsWithoutLimitDisclosure,
         };
 
-        // Add type only if it exists in the original items
         if (items.type !== undefined) {
           parsedItem.type = items.type;
         }
@@ -182,12 +218,18 @@ const App = () => {
         required: schema.required ? schema.required.includes(key) : false,
       };
 
-      // Only add type if it exists in the original property
-      if (property.type !== undefined) {
+      if (!property.type) {
+        try {
+          parsedProperty.type = detectSchemaType(property);
+        } catch (err) {
+          console.warn(`Could not detect type for property ${key}:`, err);
+          parsedProperty.type = "string";
+        }
+      } else {
         parsedProperty.type = property.type;
       }
 
-      if (property.type === "object") {
+      if (parsedProperty.type === "object") {
         delete parsedProperty.properties;
         parsedProperty.properties = parseProperties(
           property.properties || {},
@@ -200,7 +242,7 @@ const App = () => {
         ) {
           parsedProperty.additionalProperties = property.additionalProperties;
         }
-      } else if (property.type === "array") {
+      } else if (parsedProperty.type === "array") {
         delete parsedProperty.items;
         parsedProperty.items = parseItems(property.items || {});
       }
@@ -223,11 +265,7 @@ const App = () => {
     return result;
   };
 
-  const generateJsonSchema = (
-    sections,
-    credentialFormatValue,
-    additionalProperties
-  ) => {
+  const generateJsonSchema = (sections, credentialFormatValue) => {
     const shouldAddLimitDisclosure = (property) => {
       if (credentialFormatValue === "jwt") return undefined;
       return property.limitDisclosure !== undefined
@@ -235,23 +273,69 @@ const App = () => {
         : undefined;
     };
 
+    // Helper function to check if a property has a $ref to $defs or definitions
+    const hasDefinitionReference = (property) => {
+      const isDefRef = (ref) => {
+        return (
+          ref &&
+          (ref.startsWith("#/$defs/") || ref.startsWith("#/definitions/"))
+        );
+      };
+
+      // Check direct anyOf with $ref
+      if (property.anyOf && Array.isArray(property.anyOf)) {
+        return property.anyOf.some((item) => isDefRef(item.$ref));
+      }
+      // Check items.anyOf with $ref for arrays
+      if (
+        property.items &&
+        property.items.anyOf &&
+        Array.isArray(property.items.anyOf)
+      ) {
+        return property.items.anyOf.some((item) => isDefRef(item.$ref));
+      }
+
+      // Check direct oneOf with $ref
+      if (property.oneOf && Array.isArray(property.oneOf)) {
+        return property.oneOf.some((item) => isDefRef(item.$ref));
+      }
+      // Check items.oneOf with $ref for arrays
+      if (
+        property.items &&
+        property.items.oneOf &&
+        Array.isArray(property.items.oneOf)
+      ) {
+        return property.items.oneOf.some((item) => isDefRef(item.$ref));
+      }
+
+      // Check direct allOf with $ref
+      if (property.allOf && Array.isArray(property.allOf)) {
+        return property.allOf.some((item) => isDefRef(item.$ref));
+      }
+      // Check items.allOf with $ref for arrays
+      if (
+        property.items &&
+        property.items.allOf &&
+        Array.isArray(property.items.allOf)
+      ) {
+        return property.items.allOf.some((item) => isDefRef(item.$ref));
+      }
+
+      // Check direct $ref
+      return isDefRef(property.$ref);
+    };
+
     const generateItems = (items) => {
       if (Array.isArray(items)) {
-        return {
-          type: "array",
-          items: items.map((item) => generateItems(item)),
-        };
+        return items.map((item) => generateItems(item));
       }
 
       if (items.type === "object") {
-        const generatedItem = {
-          ...items,
-          properties: generateProperties(items.properties || []),
-        };
+        const properties = generateProperties(items.properties || []);
+        const result = {};
 
-        // Only add type if it exists in the original items
-        if (items.type !== undefined) {
-          generatedItem.type = items.type;
+        if (Object.keys(properties).length > 0) {
+          result.properties = properties;
         }
 
         if (Array.isArray(items.properties) && items.properties.length > 0) {
@@ -260,16 +344,25 @@ const App = () => {
             .map((prop) => prop.name);
 
           if (requiredProps.length > 0) {
-            generatedItem.required = requiredProps;
+            result.required = requiredProps;
           }
         }
 
         const limitDisclosureValue = shouldAddLimitDisclosure(items);
         if (limitDisclosureValue !== undefined) {
-          generatedItem.limitDisclosure = limitDisclosureValue;
+          result.limitDisclosure = limitDisclosureValue;
         }
 
-        return generatedItem;
+        // Copy over properties except type if it has a definition reference
+        for (const key in items) {
+          if (!["properties", "required", "limitDisclosure"].includes(key)) {
+            if (!(hasDefinitionReference(items) && key === "type")) {
+              result[key] = items[key];
+            }
+          }
+        }
+
+        return result;
       }
 
       return items;
@@ -283,26 +376,27 @@ const App = () => {
       return properties.reduce((acc, property) => {
         if (!property || !property.name) return acc;
 
-        acc[property.name] = {
-          ...Object.fromEntries(
-            Object.entries(property).filter(
-              ([key]) =>
-                ![
-                  "name",
-                  "type",
-                  "properties",
-                  "items",
-                  "required",
-                  "limitDisclosure",
-                  "additionalProperties",
-                ].includes(key)
-            )
-          ),
-        };
+        acc[property.name] = {};
 
-        // Only add type if it exists in the original property
-        if (property.type !== undefined) {
-          acc[property.name].type = property.type;
+        // Check if this property has a reference to $defs or definitions
+        const skipTypeField = hasDefinitionReference(property);
+
+        // Copy over non-UI fields
+        for (const key in property) {
+          if (
+            ![
+              "name",
+              "required",
+              "properties",
+              "items",
+              "limitDisclosure",
+              "additionalProperties",
+            ].includes(key)
+          ) {
+            if (!(skipTypeField && key === "type")) {
+              acc[property.name][key] = property[key];
+            }
+          }
         }
 
         const limitDisclosureValue = shouldAddLimitDisclosure(property);
@@ -315,7 +409,11 @@ const App = () => {
             ? property.properties
             : [];
 
-          acc[property.name].properties = generateProperties(propertyArray);
+          const generatedProperties = generateProperties(propertyArray);
+
+          if (Object.keys(generatedProperties).length > 0) {
+            acc[property.name].properties = generatedProperties;
+          }
 
           if (propertyArray.length > 0) {
             const requiredFields = propertyArray
@@ -326,31 +424,50 @@ const App = () => {
               acc[property.name].required = requiredFields;
             }
           }
+
+          if (
+            property.additionalProperties !== undefined &&
+            credentialFormatValue !== "mso_mdoc"
+          ) {
+            acc[property.name].additionalProperties =
+              property.additionalProperties;
+          }
         } else if (property.type === "array") {
           acc[property.name].items = generateItems(
             property.items || { type: "string" }
           );
         }
 
+        // Preserve anyOf, $ref and other schema-related properties
+        if (property.anyOf) {
+          acc[property.name].anyOf = property.anyOf;
+        }
+        if (property.oneOf) {
+          acc[property.name].oneOf = property.oneOf;
+        }
+        if (property.allOf) {
+          acc[property.name].allOf = property.allOf;
+        }
+        if (property.$ref) {
+          acc[property.name].$ref = property.$ref;
+        }
+
         return acc;
       }, {});
     };
 
+    // Start with the original schema structure, preserve both $defs and definitions
     const schema = {
       ...(window._originalSchema || {}),
       type: "object",
       properties: generateProperties(sections),
     };
 
-    // Check if any section has additionalProperties defined
     const hasAdditionalProperties = sections.some(
       (section) => section?.additionalProperties !== undefined
     );
 
-    // Only include additionalProperties if it was explicitly defined in sections
-
     if (credentialFormatValue !== "mso_mdoc" && hasAdditionalProperties) {
-      // Use the first defined additionalProperties value
       const additionalPropertiesValue = sections.find(
         (section) => section?.additionalProperties !== undefined
       )?.additionalProperties;
