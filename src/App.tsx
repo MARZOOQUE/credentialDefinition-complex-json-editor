@@ -1,54 +1,50 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import MonacoEditor from "react-monaco-editor";
 import "./App.css";
 
-const App = () => {
+
+const App: React.FC = () => {
   const { register, control, handleSubmit, setValue, watch, getValues } =
-    useForm({
+    useForm<any>({
       defaultValues: {
         name: "",
         MultipleCredentialConfigurations: [],
       },
     });
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [currentConfigIndex, setCurrentConfigIndex] = useState(null);
-  const [editorValue, setEditorValue] = useState("{}");
-  const [editorError, setEditorError] = useState(null);
+  const [modalOpen, setModalOpen] = useState<boolean>(false);
+  const [currentConfigIndex, setCurrentConfigIndex] = useState<number | null>(null);
+  const [editorValue, setEditorValue] = useState<string>("{}");
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   const {
     fields: configFields,
     append: appendConfig,
     remove: removeConfig,
-  } = useFieldArray({
+  } = useFieldArray<any>({
     control,
     name: "MultipleCredentialConfigurations",
   });
 
-  const addNewConfiguration = () => {
-    const newConfig = {
-      credentialDefinition: [], // Start with empty array
+  const addNewConfiguration = (): void => {
+    const newConfig: any = {
+      credentialDefinition: [],
       jsonSchema: "{}",
-      credentialFormat: false, // Start with false
+      credentialFormat: false,
     };
     appendConfig(newConfig);
-    // Reset the current config index to null to ensure a fresh start
     setCurrentConfigIndex(null);
   };
 
-  const openModal = (index) => {
+  const openModal = (index: number): void => {
     setCurrentConfigIndex(index);
-    const currentConfig = getValues(
-      `MultipleCredentialConfigurations.${index}`
-    );
-    // Ensure we have a valid JSON string
-    const jsonSchema = currentConfig.jsonSchema || "{}";
+    const currentConfig = getValues(`MultipleCredentialConfigurations.${index}`);
+    const jsonSchema = currentConfig?.jsonSchema || "{}";
     try {
-      // Validate and format the JSON
       const parsed = JSON.parse(jsonSchema);
       setEditorValue(JSON.stringify(parsed, null, 2));
-    } catch (e) {
+    } catch (e: any) {
       console.error("Invalid JSON in schema:", e);
       setEditorValue("{}");
     }
@@ -56,56 +52,48 @@ const App = () => {
     setModalOpen(true);
   };
 
-  const selectConfiguration = (index) => {
-    setCurrentConfigIndex(index);
-  };
+  const closeModal = (): void => {
+    if (currentConfigIndex === null) return;
 
-  const closeModal = () => {
-    // Update jsonSchema only when closing the modal
-    if (currentConfigIndex !== null) {
-      try {
-        const parsedSchema = JSON.parse(editorValue);
-        setValue(
-          `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema`,
-          editorValue
-        );
+    try {
+      const parsedSchema = JSON.parse(editorValue);
+      setValue(
+        `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema` as const,
+        editorValue
+      );
 
-        // Store the original schema for later use
-        window._originalSchema = {
-          $schema: parsedSchema.$schema,
-          title: parsedSchema.title,
-          description: parsedSchema.description,
-          allOf: parsedSchema.allOf,
-          required: parsedSchema.required,
-          type: parsedSchema.type,
-          ...(parsedSchema.additionalProperties !== undefined && {
-            additionalProperties: parsedSchema.additionalProperties,
-          }),
-          ...Object.fromEntries(
-            Object.entries(parsedSchema).filter(
-              ([key]) => !["properties", "additionalProperties"].includes(key)
-            )
-          ),
-        };
+      (window as any)._originalSchema = {
+        $schema: parsedSchema.$schema,
+        title: parsedSchema.title,
+        description: parsedSchema.description,
+        allOf: parsedSchema.allOf,
+        required: parsedSchema.required,
+        type: parsedSchema.type,
+        ...(parsedSchema.additionalProperties !== undefined && {
+          additionalProperties: parsedSchema.additionalProperties,
+        }),
+        ...Object.fromEntries(
+          Object.entries(parsedSchema).filter(
+            ([key]) => !["properties", "additionalProperties"].includes(key)
+          )
+        ),
+      };
 
-        const currentCredentialFormat = watch(
-          `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat`
-        );
-        const newSections = parseSchema(parsedSchema, currentCredentialFormat);
+      const currentCredentialFormat = watch(
+        `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat` as const
+      );
+      const newSections = parseSchema(parsedSchema, currentCredentialFormat);
 
-        // Ensure we're setting an array even if newSections is empty
-        setValue(
-          `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition`,
-          Array.isArray(newSections) ? newSections : []
-        );
+      setValue(
+        `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition` as const,
+        Array.isArray(newSections) ? newSections : []
+      );
 
-        // Force a re-render by updating the JSON schema
-        updateJsonSchemaFromCredentialDefinition(currentConfigIndex);
-      } catch (e) {
-        console.error("Invalid JSON schema", e);
-        setEditorError("Invalid JSON: " + e.message);
-        return; // Don't close modal if there's an error
-      }
+      updateJsonSchemaFromCredentialDefinition(currentConfigIndex);
+    } catch (e: any) {
+      console.error("Invalid JSON schema", e);
+      setEditorError("Invalid JSON: " + e.message);
+      return;
     }
 
     setModalOpen(false);
@@ -114,7 +102,7 @@ const App = () => {
     setEditorError(null);
   };
 
-  const handleJsonSchemaChange = (newValue) => {
+  const handleJsonSchemaChange = (newValue: string): void => {
     // Only update the editor value, don't update the form or parse the schema
     setEditorValue(newValue);
 
@@ -122,12 +110,12 @@ const App = () => {
     try {
       JSON.parse(newValue);
       setEditorError(null);
-    } catch (e) {
+    } catch (e: any) {
       setEditorError("Invalid JSON: " + e.message);
     }
   };
 
-  const detectSchemaType = (schemaObj) => {
+  const detectSchemaType = (schemaObj: any): string => {
     if (schemaObj.type) {
       return schemaObj.type;
     }
@@ -150,21 +138,21 @@ const App = () => {
     return "string";
   };
 
-  const parseSchema = (schema, credentialFormatValue) => {
-    const shouldAddLimitDisclosure = (property) => {
+  const parseSchema = (schema: any, credentialFormatValue: any): any => {
+    const shouldAddLimitDisclosure = (property: any): any => {
       if (credentialFormatValue === "jwt") return undefined;
       return property.limitDisclosure !== undefined
         ? property.limitDisclosure
         : undefined;
     };
 
-    const parseProperties = (properties, requiredFields) => {
-      return Object.keys(properties).map((key) => {
-        const property = properties[key];
-        const propertyWithoutLimitDisclosure = { ...property };
+    const parseProperties = (properties: any, requiredFields: any): any => {
+      return Object.keys(properties).map((key: string) => {
+        const property: any = properties[key];
+        const propertyWithoutLimitDisclosure: any = { ...property };
         delete propertyWithoutLimitDisclosure.limitDisclosure;
 
-        const parsedProperty = {
+        const parsedProperty: any = {
           ...propertyWithoutLimitDisclosure,
           name: key,
           required:
@@ -174,7 +162,7 @@ const App = () => {
         if (!property.type) {
           try {
             parsedProperty.type = detectSchemaType(property);
-          } catch (err) {
+          } catch (err: any) {
             console.warn(`Could not detect type for property ${key}:`, err);
             parsedProperty.type = "string";
           }
@@ -182,7 +170,7 @@ const App = () => {
           parsedProperty.type = property.type;
         }
 
-        const limitDisclosureValue = shouldAddLimitDisclosure(property);
+        const limitDisclosureValue: any = shouldAddLimitDisclosure(property);
         if (limitDisclosureValue !== undefined) {
           parsedProperty.limitDisclosure = limitDisclosureValue;
         }
@@ -211,28 +199,28 @@ const App = () => {
       });
     };
 
-    const parseItems = (items) => {
+    const parseItems = (items: any): any => {
       if (Array.isArray(items)) {
         return {
           type: "array",
-          items: items.map((item) => parseItems(item)),
+          items: items.map((item: any) => parseItems(item)),
         };
       }
 
       if (!items.type) {
         try {
           items.type = detectSchemaType(items);
-        } catch (err) {
+        } catch (err: any) {
           console.warn("Could not detect type for array items:", err);
           items.type = "string";
         }
       }
 
       if (items.type === "object") {
-        const itemsWithoutLimitDisclosure = { ...items };
+        const itemsWithoutLimitDisclosure: any = { ...items };
         delete itemsWithoutLimitDisclosure.limitDisclosure;
 
-        const parsedItem = {
+        const parsedItem: any = {
           ...itemsWithoutLimitDisclosure,
         };
 
@@ -246,7 +234,7 @@ const App = () => {
           items.required || []
         );
 
-        const limitDisclosureValue = shouldAddLimitDisclosure(items);
+        const limitDisclosureValue: any = shouldAddLimitDisclosure(items);
         if (limitDisclosureValue !== undefined) {
           parsedItem.limitDisclosure = limitDisclosureValue;
         }
@@ -269,12 +257,12 @@ const App = () => {
       return [];
     }
 
-    const result = Object.keys(schema.properties).map((key) => {
-      const property = schema.properties[key];
-      const propertyWithoutLimitDisclosure = { ...property };
+    const result: any = Object.keys(schema.properties).map((key: string) => {
+      const property: any = schema.properties[key];
+      const propertyWithoutLimitDisclosure: any = { ...property };
       delete propertyWithoutLimitDisclosure.limitDisclosure;
 
-      const parsedProperty = {
+      const parsedProperty: any = {
         ...propertyWithoutLimitDisclosure,
         name: key,
         required: schema.required ? schema.required.includes(key) : false,
@@ -283,7 +271,7 @@ const App = () => {
       if (!property.type) {
         try {
           parsedProperty.type = detectSchemaType(property);
-        } catch (err) {
+        } catch (err: any) {
           console.warn(`Could not detect type for property ${key}:`, err);
           parsedProperty.type = "string";
         }
@@ -309,7 +297,7 @@ const App = () => {
         parsedProperty.items = parseItems(property.items || {});
       }
 
-      const limitDisclosureValue = shouldAddLimitDisclosure(property);
+      const limitDisclosureValue: any = shouldAddLimitDisclosure(property);
       if (limitDisclosureValue !== undefined) {
         parsedProperty.limitDisclosure = limitDisclosureValue;
       }
@@ -327,10 +315,10 @@ const App = () => {
     return result;
   };
 
-  const generateJsonSchema = (sections, credentialFormatValue) => {
+  const generateJsonSchema = (sections: any, credentialFormatValue: any): any => {
     // If we have no sections but have original schema, use that
-    if ((!sections || sections.length === 0) && window._originalSchema) {
-      return window._originalSchema;
+    if ((!sections || sections.length === 0) && (window as any)._originalSchema) {
+      return (window as any)._originalSchema;
     }
 
     // If we have no sections, return a basic schema
@@ -342,19 +330,19 @@ const App = () => {
       };
     }
 
-    const shouldAddLimitDisclosure = (property) => {
+    const shouldAddLimitDisclosure = (property: any): any => {
       if (credentialFormatValue === "jwt") return undefined;
       return property.limitDisclosure !== undefined
         ? property.limitDisclosure
         : undefined;
     };
 
-    const generateProperties = (properties) => {
+    const generateProperties = (properties: any): any => {
       if (!Array.isArray(properties)) {
         return {};
       }
 
-      return properties.reduce((acc, property) => {
+      return properties.reduce((acc: any, property: any) => {
         if (!property || !property.name) return acc;
 
         acc[property.name] = {
@@ -362,27 +350,27 @@ const App = () => {
         };
 
         // Add limitDisclosure if it exists
-        const limitDisclosureValue = shouldAddLimitDisclosure(property);
+        const limitDisclosureValue: any = shouldAddLimitDisclosure(property);
         if (limitDisclosureValue !== undefined) {
           acc[property.name].limitDisclosure = limitDisclosureValue;
         }
 
         // Handle object type
         if (property.type === "object") {
-          const propertyArray = Array.isArray(property.properties)
+          const propertyArray: any = Array.isArray(property.properties)
             ? property.properties
             : [];
 
-          const generatedProperties = generateProperties(propertyArray);
+          const generatedProperties: any = generateProperties(propertyArray);
 
           if (Object.keys(generatedProperties).length > 0) {
             acc[property.name].properties = generatedProperties;
           }
 
           if (propertyArray.length > 0) {
-            const requiredFields = propertyArray
-              .filter((prop) => prop && prop.required)
-              .map((prop) => prop.name)
+            const requiredFields: any = propertyArray
+              .filter((prop: any) => prop && prop.required)
+              .map((prop: any) => prop.name)
               .filter(Boolean);
 
             if (requiredFields.length > 0) {
@@ -426,22 +414,22 @@ const App = () => {
       }, {});
     };
 
-    const generateItems = (items) => {
+    const generateItems = (items: any): any => {
       if (Array.isArray(items)) {
-        return items.map((item) => generateItems(item));
+        return items.map((item: any) => generateItems(item));
       }
 
       if (items.type === "object") {
-        const properties = generateProperties(items.properties || []);
-        const result = {
+        const properties: any = generateProperties(items.properties || []);
+        const result: any = {
           type: "object",
           properties: properties,
         };
 
         if (Object.keys(properties).length > 0) {
-          const requiredFields = Object.keys(properties)
+          const requiredFields: any = Object.keys(properties)
             .filter(
-              (key) => items.properties?.find((p) => p.name === key)?.required
+              (key: string) => items.properties?.find((p: any) => p.name === key)?.required
             )
             .filter(Boolean);
 
@@ -450,7 +438,7 @@ const App = () => {
           }
         }
 
-        const limitDisclosureValue = shouldAddLimitDisclosure(items);
+        const limitDisclosureValue: any = shouldAddLimitDisclosure(items);
         if (limitDisclosureValue !== undefined) {
           result.limitDisclosure = limitDisclosureValue;
         }
@@ -464,15 +452,15 @@ const App = () => {
     };
 
     // Generate the schema
-    const schema = {
+    const schema: any = {
       type: "object",
       properties: generateProperties(sections),
     };
 
     // Add required fields
-    const requiredFields = sections
-      .filter((section) => section && section.required)
-      .map((section) => section.name)
+    const requiredFields: any = sections
+      .filter((section: any) => section && section.required)
+      .map((section: any) => section.name)
       .filter(Boolean);
 
     if (requiredFields.length > 0) {
@@ -480,13 +468,13 @@ const App = () => {
     }
 
     // Add additional properties if needed
-    const hasAdditionalProperties = sections.some(
-      (section) => section?.additionalProperties !== undefined
+    const hasAdditionalProperties: boolean = sections.some(
+      (section: any) => section?.additionalProperties !== undefined
     );
 
     if (credentialFormatValue !== "mso_mdoc" && hasAdditionalProperties) {
-      const additionalPropertiesValue = sections.find(
-        (section) => section?.additionalProperties !== undefined
+      const additionalPropertiesValue: any = sections.find(
+        (section: any) => section?.additionalProperties !== undefined
       )?.additionalProperties;
       schema.additionalProperties = additionalPropertiesValue;
     }
@@ -494,28 +482,14 @@ const App = () => {
     return schema;
   };
 
-  const watchCurrentCredentialDefinition = watch(
-    currentConfigIndex !== null
-      ? `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition`
-      : "temp"
-  );
-  const watchCurrentCredentialFormat = watch(
-    currentConfigIndex !== null
-      ? `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat`
-      : "temp"
-  );
-
-  const updateJsonSchemaFromCredentialDefinition = (configIndex) => {
-    if (configIndex === undefined) {
-      configIndex = currentConfigIndex;
-    }
+  const updateJsonSchemaFromCredentialDefinition = (configIndex: number): void => {
     if (configIndex === null) return;
 
     const currentCredentialDefinition = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition`
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition` as const
     );
     const currentCredentialFormat = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialFormat`
+      `MultipleCredentialConfigurations.${configIndex}.credentialFormat` as const
     );
 
     const newJsonSchema = generateJsonSchema(
@@ -525,94 +499,75 @@ const App = () => {
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
 
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.jsonSchema`,
+      `MultipleCredentialConfigurations.${configIndex}.jsonSchema` as const,
       newJsonSchemaString
     );
   };
 
-  const handleTypeChange = (configIndex, fieldIndex, value) => {
-    console.log("Type change:", { configIndex, fieldIndex, value });
-
-    // Update the type in the form
+  const handleTypeChange = (configIndex: number, fieldIndex: number, value: string): void => {
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition.${fieldIndex}.type`,
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition.${fieldIndex}.type` as const,
       value
     );
 
-    // Get the current credential definition
     const currentCredentialDefinition = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition`
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition` as const
     );
-    console.log("Current credential definition:", currentCredentialDefinition);
 
-    // Update the JSON schema immediately
     const currentCredentialFormat = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialFormat`
+      `MultipleCredentialConfigurations.${configIndex}.credentialFormat` as const
     );
     const newJsonSchema = generateJsonSchema(
       currentCredentialDefinition,
       currentCredentialFormat
     );
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
-    console.log("New JSON schema:", newJsonSchemaString);
 
-    // Update the JSON schema in the form
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.jsonSchema`,
+      `MultipleCredentialConfigurations.${configIndex}.jsonSchema` as const,
       newJsonSchemaString
     );
   };
 
-  const handleNameChange = (configIndex, fieldIndex, value) => {
-    console.log("Name change:", { configIndex, fieldIndex, value });
-
-    // Update the name in the form
+  const handleNameChange = (configIndex: number, fieldIndex: number, value: string): void => {
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition.${fieldIndex}.name`,
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition.${fieldIndex}.name` as const,
       value
     );
 
-    // Get the current credential definition
     const currentCredentialDefinition = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition`
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition` as const
     );
-    console.log("Current credential definition:", currentCredentialDefinition);
 
-    // Update the JSON schema immediately
     const currentCredentialFormat = getValues(
-      `MultipleCredentialConfigurations.${configIndex}.credentialFormat`
+      `MultipleCredentialConfigurations.${configIndex}.credentialFormat` as const
     );
     const newJsonSchema = generateJsonSchema(
       currentCredentialDefinition,
       currentCredentialFormat
     );
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
-    console.log("New JSON schema:", newJsonSchemaString);
 
-    // Update the JSON schema in the form
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.jsonSchema`,
+      `MultipleCredentialConfigurations.${configIndex}.jsonSchema` as const,
       newJsonSchemaString
     );
   };
 
-  const handleRequiredChange = (index, checked) => {
+  const handleRequiredChange = (index: number, fieldIndex: number, checked: boolean): void => {
     if (currentConfigIndex === null) return;
 
-    // First update the required status
     setValue(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition.${index}.required`,
+      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition.${fieldIndex}.required` as const,
       checked
     );
 
-    // Get the current credential definition
     const currentCredentialDefinition = getValues(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition`
+      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition` as const
     );
 
-    // Update the JSON schema immediately
     const currentCredentialFormat = getValues(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat`
+      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat` as const
     );
     const newJsonSchema = generateJsonSchema(
       currentCredentialDefinition,
@@ -620,24 +575,23 @@ const App = () => {
     );
     const newJsonSchemaString = JSON.stringify(newJsonSchema, null, 2);
 
-    // Update the JSON schema in the form
     setValue(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema`,
+      `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema` as const,
       newJsonSchemaString
     );
   };
 
-  const handleCredentialFormatValueChange = (event) => {
+  const handleCredentialFormatValueChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
     if (currentConfigIndex === null) return;
 
     const isChecked = event.target.checked;
     setValue(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat`,
+      `MultipleCredentialConfigurations.${currentConfigIndex}.credentialFormat` as const,
       isChecked
     );
 
     const currentJsonSchema = JSON.parse(
-      watch(`MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema`)
+      watch(`MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema` as const)
     );
 
     if (Object.keys(currentJsonSchema.properties || {}).length === 0) {
@@ -645,94 +599,48 @@ const App = () => {
     }
 
     setValue(
-      `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema`,
+      `MultipleCredentialConfigurations.${currentConfigIndex}.jsonSchema` as const,
       JSON.stringify(currentJsonSchema, null, 2)
     );
 
     try {
       const newSections = parseSchema(currentJsonSchema, isChecked);
       setValue(
-        `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition`,
+        `MultipleCredentialConfigurations.${currentConfigIndex}.credentialDefinition` as const,
         newSections
       );
-    } catch (e) {
+    } catch (e: any) {
       console.error("Invalid JSON schema", e);
     }
   };
 
-  const updateCredentialFormatValue = (jsonData, configIndex) => {
-    let hasLimitDisclosure = false;
-    let hasFalseValue = false;
+  const addNewSection = (configIndex: number): void => {
+    const currentCredentialDefinition = getValues(
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition` as const
+    ) || [];
 
-    function traverse(obj) {
-      if (typeof obj === "object" && obj !== null) {
-        Object.keys(obj).forEach((key) => {
-          if (key === "limitDisclosure") {
-            hasLimitDisclosure = true;
-            if (obj[key] === false) {
-              hasFalseValue = true;
-            }
-          }
-          traverse(obj[key]);
-        });
-      } else if (Array.isArray(obj)) {
-        obj.forEach((item) => traverse(item));
-      }
-    }
-
-    traverse(jsonData);
-
-    if (!hasLimitDisclosure) {
-      setValue(
-        `MultipleCredentialConfigurations.${configIndex}.credentialFormat`,
-        false
-      );
-      return;
-    }
-
-    if (hasFalseValue) {
-      setValue(
-        `MultipleCredentialConfigurations.${configIndex}.credentialFormat`,
-        false
-      );
-    }
-  };
-
-  const addNewSection = (configIndex) => {
-    console.log("Adding new section for config index:", configIndex);
-
-    // Get current credential definition
-    const currentCredentialDefinition =
-      getValues(
-        `MultipleCredentialConfigurations.${configIndex}.credentialDefinition`
-      ) || [];
-
-    // Create new section
-    const newSection = {
+    const newSection: any = {
       name: "",
       type: "string",
+      required: true,
       properties: [],
       items: {},
-      required: true,
       limitDisclosure: watch(
-        `MultipleCredentialConfigurations.${configIndex}.credentialFormat`
+        `MultipleCredentialConfigurations.${configIndex}.credentialFormat` as const
       ),
     };
 
-    // Update the credential definition with the new section
     setValue(
-      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition`,
+      `MultipleCredentialConfigurations.${configIndex}.credentialDefinition` as const,
       [...currentCredentialDefinition, newSection]
     );
 
-    // Update JSON schema with the specific config index
     setTimeout(() => updateJsonSchemaFromCredentialDefinition(configIndex), 0);
   };
 
   return (
     <div className="app-container">
       <form onSubmit={handleSubmit(() => {})}>
-        {/* Main Name Field */}
         <div className="name-container">
           <label>Configuration Name:</label>
           <input
@@ -742,7 +650,6 @@ const App = () => {
           />
         </div>
 
-        {/* Multiple Credential Configurations */}
         <div className="configurations-container">
           <div className="configurations-header">
             <h3>Multiple Credential Configurations</h3>
@@ -784,14 +691,14 @@ const App = () => {
                       <input
                         type="checkbox"
                         {...register(
-                          `MultipleCredentialConfigurations.${index}.credentialFormat`
+                          `MultipleCredentialConfigurations.${index}.credentialFormat` as const
                         )}
                         onChange={(e) => {
                           setCurrentConfigIndex(index);
                           handleCredentialFormatValueChange(e);
                         }}
                         checked={watch(
-                          `MultipleCredentialConfigurations.${index}.credentialFormat`
+                          `MultipleCredentialConfigurations.${index}.credentialFormat` as const
                         )}
                       />
                       Limit Disclosure
@@ -808,13 +715,13 @@ const App = () => {
 
                   <ul className="fields-list">
                     {watch(
-                      `MultipleCredentialConfigurations.${index}.credentialDefinition`
+                      `MultipleCredentialConfigurations.${index}.credentialDefinition` as const
                     )?.map((field, fieldIndex) => (
                       <li key={fieldIndex} className="field-item">
                         <input
                           value={
                             watch(
-                              `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.name`
+                              `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.name` as const
                             ) || ""
                           }
                           onChange={(e) =>
@@ -826,7 +733,7 @@ const App = () => {
                         <select
                           value={
                             watch(
-                              `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.type`
+                              `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.type` as const
                             ) || "string"
                           }
                           onChange={(e) =>
@@ -845,7 +752,7 @@ const App = () => {
                             type="checkbox"
                             checked={
                               watch(
-                                `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.required`
+                                `MultipleCredentialConfigurations.${index}.credentialDefinition.${fieldIndex}.required` as const
                               ) || false
                             }
                             onChange={(e) =>
@@ -861,21 +768,18 @@ const App = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            const currentCredentialDefinition =
-                              getValues(
-                                `MultipleCredentialConfigurations.${index}.credentialDefinition`
-                              ) || [];
-                            const updatedDefinition =
-                              currentCredentialDefinition.filter(
-                                (_, i) => i !== fieldIndex
-                              );
+                            const currentCredentialDefinition = getValues(
+                              `MultipleCredentialConfigurations.${index}.credentialDefinition` as const
+                            ) || [];
+                            const updatedDefinition = currentCredentialDefinition.filter(
+                              (_, i) => i !== fieldIndex
+                            );
                             setValue(
-                              `MultipleCredentialConfigurations.${index}.credentialDefinition`,
+                              `MultipleCredentialConfigurations.${index}.credentialDefinition` as const,
                               updatedDefinition
                             );
                             setTimeout(
-                              () =>
-                                updateJsonSchemaFromCredentialDefinition(index),
+                              () => updateJsonSchemaFromCredentialDefinition(index),
                               0
                             );
                           }}
@@ -892,7 +796,6 @@ const App = () => {
           </div>
         </div>
 
-        {/* Modal for JSON Schema Editor */}
         {modalOpen && currentConfigIndex !== null && (
           <div className="modal-overlay" onClick={closeModal}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
